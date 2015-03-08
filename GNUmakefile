@@ -17,14 +17,14 @@ run: osppeer
 	@echo + mkdir test
 	@mkdir test
 	@echo + ./osppeer -dtest -t11111 cat1.jpg cat2.jpg cat3.jpg
-	@./osppeer -dtest -t11111 cat1.jpg cat2.jpg cat3.jpg
+	@./osppeer -dtest -t164.67.100.231:12997 cat1.jpg cat2.jpg cat3.jpg
 
 run-good: osppeer
 	@-/bin/rm -rf test
 	@echo + mkdir test
 	@mkdir test
 	@echo + ./osppeer -dtest -t11112 cat1.jpg cat2.jpg cat3.jpg
-	@./osppeer -dtest -t11112 cat1.jpg cat2.jpg cat3.jpg
+	@./osppeer -dtest -t164.67.100.231:12998 cat1.jpg cat2.jpg cat3.jpg
 
 run-slow: osppeer
 	@-/bin/rm -rf test

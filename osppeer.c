@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -679,6 +680,25 @@ static void task_upload(task_t *t)
 	task_free(t);
 }
 
+/////////////////////////////////////////////////////////////////////
+/////////// Functions Nick and I wrote //////////////////////////////
+/////////////////////////////////////////////////////////////////////
+
+int validate_path(char *argv)
+{
+    int argv_len = strlen(argv);
+    if(argv_len <= 0)
+        return -1;
+    if(argv[0] == '/' || argv[0] == '~')
+        return -1;
+    if(argv_len > 1 && strstr(argv,"..") != NULL)
+        return -1;
+    return 0;
+}
+
+/////////////////////////////////////////////////////////////////////
+/////////// Functions Nick and I wrote //////////////////////////////
+/////////////////////////////////////////////////////////////////////
 
 // main(argc, argv)
 //	The main loop!
@@ -692,7 +712,7 @@ int main(int argc, char *argv[])
 	struct passwd *pwent;
 
 	// Default tracker is read.cs.ucla.edu
-	osp2p_sscanf("131.179.80.139:11111", "%I:%d",
+	osp2p_sscanf("164.67.100.231:12998", "%I:%d",
 		     &tracker_addr, &tracker_port);
 	if ((pwent = getpwuid(getuid()))) {
 		myalias = (const char *) malloc(strlen(pwent->pw_name) + 20);
@@ -758,14 +778,37 @@ int main(int argc, char *argv[])
 	listen_task = start_listen();
 	register_files(tracker_task, myalias);
 
+    pid_t pid;
+    int result;
 	// First, download files named on command line.
-	for (; argc > 1; argc--, argv++)
-		if ((t = start_download(tracker_task, argv[1])))
-			task_download(t, tracker_task);
+	for (; argc > 1; argc--, argv++) {
+        if(validate_path(argv[1]) < 0) {
+            error("Don't try to attack me \\foo\\bar\\thePersonIPity\n");
+            continue;
+        }
+	    if ((t = start_download(tracker_task, argv[1]))) {
+            pid = fork();
+            if(pid == 0) {
+		        task_download(t, tracker_task);
+                _exit(0);
+            }
+        }
+    }
+
+    while(wait(&result) > 0)
+        continue;   // should probably check for error but we couldn't be bothered for now
 
 	// Then accept connections from other peers and upload files to them!
-	while ((t = task_listen(listen_task)))
-		task_upload(t);
+	while ((t = task_listen(listen_task))) {
+   		pid = fork();
+        if(pid == 0) {
+            task_upload(t);
+            _exit(0);
+        }
+    }
+ 
+    while(wait(&result) > 0)
+        continue;   // should probably check for error but we couldn't be bothered for now
 
 	return 0;
 }
