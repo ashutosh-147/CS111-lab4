@@ -75,6 +75,11 @@ typedef struct task {
 				// at a time, if a peer misbehaves.
 } task_t;
 
+typedef struct task_node {
+    task_t *task;
+    task_node_t *next;
+} task_node_t;
+
 
 // task_new(type)
 //	Create and return a new task of type 'type'.
@@ -528,6 +533,102 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 //	directory.  't' was created by start_download().
 //	Starts with the first peer on 't's peer list, then tries all peers
 //	until a download is successful.
+static void task_d1(task_t *t) {
+    int i, ret = -1;
+    assert(!t || t->type == TASK_DOWNLOAD);
+
+    // Quit if no peers, and skip this peer
+	if (!t || !t->peer_list) {
+		error("* No peers are willing to serve '%s'\n",
+		      (t ? t->filename : "that file"));
+		task_free(t);
+		return;
+	} else if (t->peer_list->addr.s_addr == listen_addr.s_addr
+		   && t->peer_list->port == listen_port)
+		goto try_again;
+
+	// Connect to the peer and write the GET command
+	message("* Connecting to %s:%d to download '%s'\n",
+		inet_ntoa(t->peer_list->addr), t->peer_list->port,
+		t->filename);
+	t->peer_fd = open_socket(t->peer_list->addr, t->peer_list->port);
+	if (t->peer_fd == -1) {
+		error("* Cannot connect to peer: %s\n", strerror(errno));
+		goto try_again;
+	}
+	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
+
+	// Open disk file for the result.
+	// If the filename already exists, save the file in a name like
+	// "foo.txt~1~".  However, if there are 50 local files, don't download
+	// at all.
+	for (i = 0; i < 50; i++) {
+		if (i == 0)
+			strncpy(t->disk_filename, t->filename, FILENAMESIZ);
+		else
+			snprintf(t->disk_filename, FILENAMESIZ, "%s~%d~", t->filename, i);
+		t->disk_fd = open(t->disk_filename,
+				  O_WRONLY | O_CREAT | O_EXCL, 0666);
+		if (t->disk_fd == -1 && errno != EEXIST) {
+			error("* Cannot open local file");
+			goto try_again;
+		} else if (t->disk_fd != -1) {
+			message("* Saving result to '%s'\n", t->disk_filename);
+			break;
+		}
+	}
+	if (t->disk_fd == -1) {
+		error("* Too many local files like '%s' exist already.\n\
+* Try 'rm %s.~*~' to remove them.\n", t->filename, t->filename);
+		task_free(t);
+		return;
+	}
+
+	// Read the file into the task buffer from the peer,
+	// and write it from the task buffer onto disk.
+	while (1) {
+		int ret = read_to_taskbuf(t->peer_fd, t);
+		if (ret == TBUF_ERROR) {
+			error("* Peer read error");
+			goto try_again;
+		} else if (ret == TBUF_END && t->head == t->tail)
+			/* End of file */
+			break;
+
+		ret = write_from_taskbuf(t->disk_fd, t);
+		if (ret == TBUF_ERROR) {
+			error("* Disk write error");
+			goto try_again;
+		}
+	}
+
+	// Empty files are usually a symptom of some error.
+	if (t->total_written > 0) {
+		return;
+	}
+	error("* Download was empty, trying next peer\n");
+
+    try_again:
+	if (t->disk_filename[0])
+		unlink(t->disk_filename);
+	// recursive call
+	task_pop_peer(t);
+	task_download(t, tracker_task);
+}
+
+static void task_d2(task_t *t, task_t *tracker_task) {
+    message("* Downloaded '%s' was %lu bytes long\n",
+	    t->disk_filename, (unsigned long) t->total_written);
+	// Inform the tracker that we now have the file,
+	// and can serve it to others!  (But ignore tracker errors.)
+	if (strcmp(t->filename, t->disk_filename) == 0) {
+		osp2p_writef(tracker_task->peer_fd, "HAVE %s\n",
+			     t->filename);
+		(void) read_tracker_response(tracker_task);
+	}
+	task_free(t);
+}
+
 static void task_download(task_t *t, task_t *tracker_task)
 {
 	int i, ret = -1;
@@ -806,28 +907,42 @@ int main(int argc, char *argv[])
 	register_files(tracker_task, myalias);
 
     pid_t pid;
-    int result;
+    int result, i, tasks = 0;
+    task_node_t task_list = NULL;
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++) {
         if(validate_path(argv[1]) < 0) {
             error("Don't try to attack me \\foo\\bar\\thePersonIPity\n");
             continue;
         }
-	    pid = fork();
-	    if(pid == 0) {
 	    if ((t = start_download(tracker_task, argv[1]))) {
-//            pid = fork();
+/*            if(task_list == NULL) {
+                task_list = malloc(sizeof(task_node_t));
+                task_list->task = t;
+            } else {
+                task_node_t temp = malloc(sizeof(task_node_t));
+                temp->task = t;
+                temp->next = task_list;
+                task_list = temp;
+            }
+            tasks++;
+	        //task_download(t, tracker_task);
+            pid = fork(); */
 //            if(pid == 0) {
-	        task_download(t, tracker_task);
+                task_d1(t);
 //                _exit(0);
 //            }
-            }
-            _exit(0);
+            task_d2(t, tracker_task);
+            
         }
     }
 
-    while(wait(&result) > 0)
-        continue;   // should probably check for error but we couldn't be bothered for now
+//    while(wait(&result) > 0)
+//        continue;   // should probably check for error but we couldn't be bothered for now
+
+//    for(i = 0; i < tasks; i++) {
+//        task_d2(t, tracker_task);
+//    }
 
 	// Then accept connections from other peers and upload files to them!
 	while ((t = task_listen(listen_task))) {
