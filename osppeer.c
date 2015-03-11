@@ -77,7 +77,7 @@ typedef struct task {
 
 typedef struct task_node {
     task_t *task;
-    task_node_t *next;
+    struct task_node *next;
 } task_node_t;
 
 
@@ -613,7 +613,7 @@ static void task_d1(task_t *t) {
 		unlink(t->disk_filename);
 	// recursive call
 	task_pop_peer(t);
-	task_download(t, tracker_task);
+	task_d1(t);
 }
 
 static void task_d2(task_t *t, task_t *tracker_task) {
@@ -908,7 +908,7 @@ int main(int argc, char *argv[])
 
     pid_t pid;
     int result, i, tasks = 0;
-    task_node_t task_list = NULL;
+    task_node_t *task_list = NULL;
 	// First, download files named on command line.
 	for (; argc > 1; argc--, argv++) {
         if(validate_path(argv[1]) < 0) {
