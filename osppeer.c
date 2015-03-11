@@ -916,33 +916,33 @@ int main(int argc, char *argv[])
             continue;
         }
 	    if ((t = start_download(tracker_task, argv[1]))) {
-/*            if(task_list == NULL) {
+            if(task_list == NULL) {
                 task_list = malloc(sizeof(task_node_t));
                 task_list->task = t;
             } else {
-                task_node_t temp = malloc(sizeof(task_node_t));
+                task_node_t *temp = malloc(sizeof(task_node_t));
                 temp->task = t;
                 temp->next = task_list;
                 task_list = temp;
             }
             tasks++;
 	        //task_download(t, tracker_task);
-            pid = fork(); */
-//            if(pid == 0) {
+            pid = fork(); 
+            if(pid == 0) {
                 task_d1(t);
-//                _exit(0);
-//            }
-            task_d2(t, tracker_task);
+                _exit(0);
+            }
+//            task_d2(t, tracker_task);
             
         }
     }
 
-//    while(wait(&result) > 0)
-//        continue;   // should probably check for error but we couldn't be bothered for now
+    while(wait(&result) > 0)
+        continue;   // should probably check for error but we couldn't be bothered for now
 
-//    for(i = 0; i < tasks; i++) {
-//        task_d2(t, tracker_task);
-//    }
+    for(i = 0; i < tasks; i++) {
+        task_d2(t, tracker_task);
+    }
 
 	// Then accept connections from other peers and upload files to them!
 	while ((t = task_listen(listen_task))) {
