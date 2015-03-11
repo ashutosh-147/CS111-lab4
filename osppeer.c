@@ -941,7 +941,10 @@ int main(int argc, char *argv[])
         continue;   // should probably check for error but we couldn't be bothered for now
 
     for(i = 0; i < tasks; i++) {
-        task_d2(t, tracker_task);
+	task_d2(task_list->task, tracker_task);
+	task_node_t *temp = task_list;
+	task_list = task_list->next;
+	free(temp);
     }
 
 	// Then accept connections from other peers and upload files to them!
