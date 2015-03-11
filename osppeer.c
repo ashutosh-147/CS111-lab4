@@ -164,18 +164,31 @@ taskbufresult_t read_to_taskbuf(int fd, task_t *t)
 	unsigned tailpos = (t->tail % TASKBUFSIZ);
 	ssize_t amt;
 
+//	printf("head:%u headpos:%u tail:%u tailpos:%u\n", t->head, headpos, t->tail, tailpos);
+//	printf("starting read\n");
 	if (t->head == t->tail || headpos < tailpos)
 		amt = read(fd, &t->buf[tailpos], TASKBUFSIZ - tailpos);
 	else
 		amt = read(fd, &t->buf[tailpos], headpos - tailpos);
+
+//	printf("finished read with result %zu\n", amt);
+//	printf("amount:%zu headpos:%u tailpos:%u\n", amt, headpos, tailpos);
+//	int i;
+//	for(i = 0; i < amt; i++)
+//		printf("%c", t->buf[tailpos+i]);
+//	printf("\n");
 
 	if (amt == -1 && (errno == EINTR || errno == EAGAIN
 			  || errno == EWOULDBLOCK))
 		return TBUF_AGAIN;
 	else if (amt == -1)
 		return TBUF_ERROR;
-	else if (amt == 0)
-		return TBUF_END;
+	else if (amt == 0) {
+		if(t->head != t->tail)
+			return TBUF_OK;
+		else
+			return TBUF_END;
+	}
 	else {
 		t->tail += amt;
 		return TBUF_OK;
@@ -286,27 +299,37 @@ int open_socket(struct in_addr addr, int port)
 static size_t read_tracker_response(task_t *t)
 {
 	char *s;
-	size_t split_pos = (size_t) -1, pos = 0;
+	size_t split_pos = (size_t) -1, abs_pos = 0, pos = 0;
 	t->head = t->tail = 0;
 
 	while (1) {
+//		printf("looping\n");
 		// Check for whether buffer is complete.
-		for (; pos+3 < t->tail; pos++)
-			if ((pos == 0 || t->buf[pos-1] == '\n')
+		for (; abs_pos+3 < t->tail; abs_pos++) {
+			t->head++;
+			pos = abs_pos % TASKBUFSIZ;
+			//printf("%c", t->buf[pos]);
+			if ((abs_pos == 0 || t->buf[pos-1] == '\n')
 			    && isdigit((unsigned char) t->buf[pos])
 			    && isdigit((unsigned char) t->buf[pos+1])
 			    && isdigit((unsigned char) t->buf[pos+2])) {
-				if (split_pos == (size_t) -1)
+				//printf("found some of dem digits %c%c%c\n", t->buf[pos], t->buf[pos+1], t->buf[pos+2]);
+				if (split_pos == (size_t) -1) {
+//					printf("\nmarking split pos\n");
 					split_pos = pos;
-				if (pos + 4 >= t->tail)
+				}
+				if (abs_pos + 4 >= t->tail)
 					break;
 				if (isspace((unsigned char) t->buf[pos + 3])
-				    && t->buf[t->tail - 1] == '\n') {
-					t->buf[t->tail] = '\0';
+				    && t->buf[(t->tail - 1) % TASKBUFSIZ] == '\n') {
+					t->buf[t->tail % TASKBUFSIZ] = '\0';
+//					printf("returning split pos\n");
 					return split_pos;
+					//return pos;
 				}
 			}
-
+		}
+//		printf("\ndoing read\n");
 		// If not, read more data.  Note that the read will not block
 		// unless NO data is available.
 		int ret = read_to_taskbuf(t->peer_fd, t);
@@ -468,8 +491,10 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 	osp2p_writef(tracker_task->peer_fd, "WANT %s\n", filename);
 	messagepos = read_tracker_response(tracker_task);
 	if (tracker_task->buf[messagepos] != '2') {
+		//printf("this is the digit: %c\n", tracker_task->buf[messagepos]);
 		error("* Tracker error message while requesting '%s':\n%s",
 		      filename, &tracker_task->buf[messagepos]);
+//		printf("this is the digit: %c\n", tracker_task->buf[messagepos]);
 		goto exit;
 	}
 
@@ -477,15 +502,17 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 		error("* Error while allocating task");
 		goto exit;
 	}
-	strcpy(t->filename, filename);
+	strncpy(t->filename, filename, FILENAMESIZ);
 
 	// add peers
 	s1 = tracker_task->buf;
 	while ((s2 = memchr(s1, '\n', (tracker_task->buf + messagepos) - s1))) {
-		if (!(p = parse_peer(s1, s2 - s1)))
-			die("osptracker responded to WANT command with unexpected format!\n");
-		p->next = t->peer_list;
-		t->peer_list = p;
+		//if (!(p = parse_peer(s1, s2 - s1)))
+		//	die("osptracker responded to WANT command with unexpected format!\n");
+		if ((p = parse_peer(s1, s2 - s1))) {
+			p->next = t->peer_list;
+			t->peer_list = p;
+		}
 		s1 = s2 + 1;
 	}
 	if (s1 != tracker_task->buf + messagepos)
@@ -534,9 +561,9 @@ static void task_download(task_t *t, task_t *tracker_task)
 	// at all.
 	for (i = 0; i < 50; i++) {
 		if (i == 0)
-			strcpy(t->disk_filename, t->filename);
+			strncpy(t->disk_filename, t->filename, FILENAMESIZ);
 		else
-			sprintf(t->disk_filename, "%s~%d~", t->filename, i);
+			snprintf(t->disk_filename, FILENAMESIZ, "%s~%d~", t->filename, i);
 		t->disk_fd = open(t->disk_filename,
 				  O_WRONLY | O_CREAT | O_EXCL, 0666);
 		if (t->disk_fd == -1 && errno != EEXIST) {
@@ -786,12 +813,16 @@ int main(int argc, char *argv[])
             error("Don't try to attack me \\foo\\bar\\thePersonIPity\n");
             continue;
         }
+	    pid = fork();
+	    if(pid == 0) {
 	    if ((t = start_download(tracker_task, argv[1]))) {
-            pid = fork();
-            if(pid == 0) {
-		        task_download(t, tracker_task);
-                _exit(0);
+//            pid = fork();
+//            if(pid == 0) {
+	        task_download(t, tracker_task);
+//                _exit(0);
+//            }
             }
+            _exit(0);
         }
     }
 

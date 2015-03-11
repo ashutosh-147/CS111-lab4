@@ -13,20 +13,26 @@
 # information you'd like us to know, please add it at the end of the file.
 
 # Partner 1
-Name: 
-Student ID: 
-Email: 
+Name: Nicholas Chung
+Student ID: 404252775
+Email: nickchung114@g.ucla.edu
 
 # Partner 2 (if you're working in a team)
-Name: 
-Student ID: 
-Email: 
+Name: Ashutosh Shiledar
+Student ID: 304142693
+Email: ashutosh.shiledar@gmail.com
 
 # EXERCISE 1: What method you used to make your peer download and upload
 #    files in parallel?  (~1-3 sentences)
 
+We decided to fork for every download and upload.
+(we should check the upload for security bugs)
+
 # EXERCISE 2A: What conditions did you find and fix that would have
 #    triggered a buffer overrun bug?  (~1-3 sentences each)
+
+TODO:
+check the strcpy function calls
 
 # EXERCISE 2B: What other robustness problems did you fix?  (~1-3 sentences
 #    each)
