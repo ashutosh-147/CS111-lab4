@@ -23,6 +23,7 @@
 #include <limits.h>
 #include "md5.h"
 #include "osp2p.h"
+#include <pthread.h>
 
 int evil_mode;			// nonzero iff this peer should behave badly
 
@@ -77,6 +78,7 @@ typedef struct task {
 
 typedef struct task_node {
     task_t *task;
+    pthread_t *thread_id;
     struct task_node *next;
 } task_node_t;
 
@@ -918,33 +920,31 @@ int main(int argc, char *argv[])
 	    if ((t = start_download(tracker_task, argv[1]))) {
             if(task_list == NULL) {
                 task_list = malloc(sizeof(task_node_t));
+                task_list->thread_id = malloc(sizeof(pthread_t));
                 task_list->task = t;
             } else {
                 task_node_t *temp = malloc(sizeof(task_node_t));
                 temp->task = t;
+                temp->thread_id = malloc(sizeof(pthread_t));
                 temp->next = task_list;
                 task_list = temp;
             }
             tasks++;
 	        //task_download(t, tracker_task);
-            pid = fork(); 
-            if(pid == 0) {
-                task_d1(t);
-                _exit(0);
-            }
+            pthread_create(task_list->thread_id, NULL, (void*)task_d1, t);
 //            task_d2(t, tracker_task);
             
         }
     }
 
-    while(wait(&result) > 0)
-        continue;   // should probably check for error but we couldn't be bothered for now
-
+    void **st = NULL;
     for(i = 0; i < tasks; i++) {
-	task_d2(task_list->task, tracker_task);
-	task_node_t *temp = task_list;
-	task_list = task_list->next;
-	free(temp);
+        pthread_join(*(task_list->thread_id), st);
+	    task_d2(task_list->task, tracker_task);
+	    task_node_t *temp = task_list;
+	    task_list = task_list->next;
+        free(temp->thread_id);
+	    free(temp);
     }
 
 	// Then accept connections from other peers and upload files to them!
