@@ -949,7 +949,7 @@ int main(int argc, char *argv[])
 
     long st = 0;
     for(i = 0; i < tasks; i++) {
-        pthread_join(*(task_list->thread_id), (void*) st);
+        pthread_join(*(task_list->thread_id), (void*) &st);
 	//printf("%li\n", st);
         if(st == 0)
     	    task_d2(task_list->task, tracker_task);
