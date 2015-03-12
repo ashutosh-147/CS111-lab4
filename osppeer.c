@@ -544,7 +544,7 @@ static void* task_d1(task_t *t) {
 		error("* No peers are willing to serve '%s'\n",
 		      (t ? t->filename : "that file"));
 		task_free(t);
-		return (void*) -1;
+		pthread_exit((void*) -1);
 	} else if (t->peer_list->addr.s_addr == listen_addr.s_addr
 		   && t->peer_list->port == listen_port)
 		goto try_again;
@@ -586,7 +586,7 @@ static void* task_d1(task_t *t) {
 		error("* Too many local files like '%s' exist already.\n\
 * Try 'rm %s.~*~' to remove them.\n", t->filename, t->filename);
 		task_free(t);
-		return (void*) -1;
+		pthread_exit((void*) -1);
 	}
 
 	// Read the file into the task buffer from the peer,
@@ -609,7 +609,7 @@ static void* task_d1(task_t *t) {
 
 	// Empty files are usually a symptom of some error.
 	if (t->total_written > 0) {
-		return (void*) 0;
+		pthread_exit((void*) 0);
 	}
 	error("* Download was empty, trying next peer\n");
 
@@ -947,15 +947,16 @@ int main(int argc, char *argv[])
         }
     }
 
-    void **st = NULL;
+    long st = 0;
     for(i = 0; i < tasks; i++) {
-        pthread_join(*(task_list->thread_id), st);
+        pthread_join(*(task_list->thread_id), (void*) st);
+	//printf("%li\n", st);
         if(st == 0)
     	    task_d2(task_list->task, tracker_task);
-	    task_node_t *temp = task_list;
-	    task_list = task_list->next;
+	task_node_t *temp = task_list;
+	task_list = task_list->next;
         free(temp->thread_id);
-	    free(temp);
+	free(temp);
     }
 
 	// Then accept connections from other peers and upload files to them!
