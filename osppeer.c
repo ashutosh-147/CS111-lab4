@@ -954,6 +954,7 @@ int main(int argc, char *argv[])
             task_upload(t);
             _exit(0);
         }
+	task_free(t);
     }
  
     while(wait(&result) > 0)
